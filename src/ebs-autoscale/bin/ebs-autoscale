@@ -58,12 +58,16 @@ until [ -d "${MP}" ]; do
   sleep 1
 done
 calc_threshold() {
+  # count devices and decide on a threshold where autoscaling is required (percentages)
   local num_devices=$(ls /dev/sd* | grep -v -E '[0-9]$' | wc -l)
   local threshold=50
+  # 5 or 6 devices: wait until device is used 80%
   if [ "$num_devices" -gt "4" ] && [ "$num_devices" -le "6" ]; then
     threshold=80
+  # 7,8,9 or 10 devices: wait until device is used 90%
   elif [ "$num_devices" -gt "6" ] && [ "$num_devices" -le "10"   ]; then
     threshold=90
+  # 1-4 or above 10 devices: wait until 50% of the device is used
   else
     threshold=50
   fi
