@@ -37,9 +37,9 @@ logthis () {
   echo "[`date`] $1"
 }
 
-MP=$1
-BASEDIR=$(dirname $0)
-AZ=$(curl -s  http://169.254.169.254/latest/meta-data/placement/availability-zone/)
+MP=$1 # mount point
+BASEDIR=$(dirname $0) # working directory
+AZ=$(curl -s  http://169.254.169.254/latest/meta-data/placement/availability-zone/) # availability zone
 
 logthis "EBS Autoscaling mountpoint: ${MP}"
 
@@ -48,15 +48,17 @@ while [ -z "${AZ}" ]; do
   sleep 1
   AZ=$(curl -s  http://169.254.169.254/latest/meta-data/placement/availability-zone/)
 done
-RG=$(echo ${AZ} | sed -e 's/[a-z]$//')
+
+RG=$(echo ${AZ} | sed -e 's/[a-z]$//') # region
 logthis "Region = $RG."
-IN=$(curl -s  http://169.254.169.254/latest/meta-data/instance-id)
+IN=$(curl -s  http://169.254.169.254/latest/meta-data/instance-id) # instace id
 DRIVE_LETTERS=({a..z})
 
 # make sure that this device is mounted.
 until [ -d "${MP}" ]; do
   sleep 1
 done
+
 calc_threshold() {
   # count devices and decide on a threshold where autoscaling is required (percentages)
   local num_devices=$(ls /dev/sd* | grep -v -E '[0-9]$' | wc -l)
@@ -73,30 +75,36 @@ calc_threshold() {
   fi
   echo ${threshold}
 }
+
 calc_new_size() {
+  # decide on how large the new EBS volume should be
   local num_devices=$1
-  local new_size=50
+  local new_size=50 # default is overwritten below
 
   if [ "$num_devices" -ge "4" ] && [ "$num_devices" -le "6" ]; then
-    new_size=100
+    new_size=100 # 100G between [4,6] (inclusive)
   elif [ "$num_devices" -gt "6" ] && [ "$num_devices" -le "10" ]; then
-    new_size=500
+    new_size=500 # 500G between (7,10]
   elif [ "$num_devices" -gt "10" ]; then
-    new_size=1000
+    new_size=1000 # 100G for more than 10 devices
   else
-    new_size=50
+    new_size=50 # 50G for less than 4 devices
   fi
-  echo ${new_size}
+  echo ${new_size} # return new size
 }
 
 add_space () {
-  local num_devices=$(ls /dev/sd* | grep -v -E '[0-9]$' | wc -l)
+  local num_devices=$(ls /dev/sd* | grep -v -E '[0-9]$' | wc -l) # count devices
   if [ "${num_devices}" -ge "16" ]; then
     logthis "No more volumes can be safely added."
     return 0
   fi
+  # retrieve current size in GB
   local curr_size=$(df  -BG ${MP} | grep ${MP} | awk '{print $2} ' | cut -d'G' -f1)
-  if [ "${curr_size}" -lt "16384" ]; then
+
+  # if volume size -lt 16G or ${MP} not set
+  if [ "${curr_size:-0}" -lt "16384" ]; then
+
     local vol_size=$(calc_new_size ${num_devices})
     logthis "Extending LV ${MP} by  ${vol_size}GB"
 
@@ -118,17 +126,22 @@ add_space () {
 
 COUNT=300
 THRESHOLD=$(calc_threshold)
-while true; do
+
+while true; do # to infinity ... and beyond
+  # retrieve current usage percentage as number
   F=$(df -BG  ${MP} | grep -v Filesystem | awk '{print $5}' | cut -d"%" -f1 -)
   if  [ $F -ge "${THRESHOLD}" ]; then
     logthis "LOW DISK ($F): Adding more."
     add_space
   fi
+  # every 300 loop executions log the current stats
   if [ "${COUNT}" -ge "300" ]; then
     logthis "Threshold -> ${THRESHOLD} :: Used% -> ${F}%"
     COUNT=0
   fi
+  # update threshold and loop counter
   THRESHOLD=$(calc_threshold)
   COUNT=$(expr $COUNT + 1 )
+  # wait 1 second
   sleep 1
 done
