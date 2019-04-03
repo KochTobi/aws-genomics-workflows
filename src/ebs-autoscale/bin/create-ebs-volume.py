@@ -77,9 +77,6 @@ def create_and_attach_volume(size=10, vol_type="gp2", encrypted=True, max_attach
     client = session.client("ec2")
     instance = ec2.Instance(instance_id)
 
-    # TODO: put a limit on the number of created volumes from this instance
-    # use tagging by instance-id for filtering
-
     # limit the number of volumes that can be attached to the instance
     attached_volumes = [v.id for v in instance.volumes.all()]
     if len(attached_volumes) > max_attached_volumes:
@@ -97,6 +94,7 @@ def create_and_attach_volume(size=10, vol_type="gp2", encrypted=True, max_attach
         VolumeType=vol_type,
         Size=size
     )
+    # wait for the volume to be available
     while True:
         volume.reload()
         if volume.state == "available":
@@ -106,8 +104,8 @@ def create_and_attach_volume(size=10, vol_type="gp2", encrypted=True, max_attach
 
     device = get_next_logical_device()
 
-    # Need to assure that the created volume is successfully attached to be
-    # cost efficient.  If attachment fails, delete the volume.
+    # Need to assure that the created volume is successfully attached
+    # to be cost efficient.  If attachment fails, delete the volume.
     try:
         instance.attach_volume(
             VolumeId=volume.volume_id,
@@ -123,7 +121,7 @@ def create_and_attach_volume(size=10, vol_type="gp2", encrypted=True, max_attach
             break
         else:
             time.sleep(1)
-    
+
     instance.modify_attribute(
         Attribute="blockDeviceMapping",
         BlockDeviceMappings=[{"DeviceName": device,
